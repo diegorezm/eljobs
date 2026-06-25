@@ -1,27 +1,25 @@
 defmodule Job do
-  defstruct id: UUID.uuid4(),
+  defstruct id: nil,
             sleep_for: 1,
             status: :pending,
-            created_at: DateTime.utc_now(),
+            created_at: nil,
             failed_at: nil
 
   def new(id \\ UUID.uuid4(), sleep_for \\ Enum.random(0..10)) do
     %__MODULE__{
       id: id,
       sleep_for: sleep_for,
-      status: :pending
+      status: :pending,
+      created_at: DateTime.utc_now()
     }
   end
 
-  def update_status(%__MODULE__{} = job, :pending),
-    do: %{job | status: :pending}
+  def update_status(job, status)
+      when status in [:pending, :running, :completed] do
+    %{job | status: status}
+  end
 
-  def update_status(%__MODULE__{} = job, :running),
-    do: %{job | status: :running}
-
-  def update_status(%__MODULE__{} = job, :completed),
-    do: %{job | status: :completed}
-
-  def update_status(%__MODULE__{} = job, :failed),
-    do: %{job | status: :failed, failed_at: DateTime.utc_now()}
+  def update_status(job, :failed) do
+    %{job | status: :failed, failed_at: DateTime.utc_now()}
+  end
 end
