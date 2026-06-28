@@ -1,30 +1,23 @@
 defmodule Worker do
   use GenServer
 
-  def start_link(job) do
-    GenServer.start_link(__MODULE__, job)
+  def start_link(id) do
+    GenServer.start_link(__MODULE__, id)
   end
 
   @impl true
-  def init(job) do
-    state = %{
-      worker_id: UUID.uuid4(),
-      job: Job.update_status(job, :running),
-      started_at: DateTime.utc_now()
-    }
-
-    send(self(), :run_job)
-
-    {:ok, state}
+  def init(id) do
+    {:ok,
+     %{
+       worker_id: id
+     }}
   end
 
   @impl true
-  def handle_info(:run_job, %{job: job} = state) do
+  def handle_cast({:run_job, job}, state) do
+    Dispatcher.worker_busy(self())
     Process.sleep(job.sleep_for)
-
-    updated_job =
-      Job.update_status(job, :completed)
-
-    {:stop, :normal, %{state | job: updated_job}}
+    Dispatcher.worker_idle(self())
+    {:noreply, state}
   end
 end
