@@ -7,12 +7,10 @@ defmodule WorkerSupervisor do
 
   @impl true
   def init(_init_arg) do
-    children = [
-      {Worker, UUID.uuid4()},
-      {Worker, UUID.uuid4()},
-      {Worker, UUID.uuid4()},
-      {Worker, UUID.uuid4()}
-    ]
+    children =
+      Enum.map(1..5, fn i ->
+        Supervisor.child_spec({Worker, UUID.uuid4()}, id: {Worker, i})
+      end)
 
     Supervisor.init(children, strategy: :one_for_one)
   end
