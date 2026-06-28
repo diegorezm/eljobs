@@ -14,14 +14,18 @@ defmodule Eljobs.MixProject do
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      extra_applications: [:logger]
+      extra_applications: [:logger],
+      mod: {Eljobs, []}
     ]
   end
 
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:uuid, "~> 1.1"}
+      {:uuid, "~> 1.1"},
+      {:bandit, "~> 1.12"},
+      {:plug, "~> 1.20"},
+      {:jason, "~> 1.4"}
     ]
   end
 end
