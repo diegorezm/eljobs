@@ -1,4 +1,5 @@
 defmodule Dispatcher do
+  require Logger
   use GenServer
 
   def dispatch(job) do
@@ -13,7 +14,7 @@ defmodule Dispatcher do
     GenServer.cast(__MODULE__, {:worker_idle, worker})
   end
 
-  def start_link() do
+  def start_link(_args) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
   end
 
@@ -66,9 +67,11 @@ defmodule Dispatcher do
   defp do_dispatch(job, state) do
     case MapSet.to_list(state.idle_workers) do
       [] ->
+        Logger.info("No idle workers, queuing job")
         %{state | queue: :queue.in(job, state.queue)}
 
       [worker | _rest] ->
+        Logger.info("Dispatching job to worker #{inspect(worker)}")
         GenServer.cast(worker, {:run_job, job})
         state
     end
