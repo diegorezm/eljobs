@@ -1,4 +1,6 @@
 defmodule Dispatcher do
+  @max_retries 1
+
   require Logger
   use GenServer
 
@@ -11,7 +13,7 @@ defmodule Dispatcher do
   def get_stats() do
     case :ets.lookup(@stats_table, :snapshot) do
       [{:snapshot, stats}] -> stats
-      [] -> %{queued_jobs: 0, busy_workers: 0, idle_workers: 0, jobs_completed: 0, jobs_failed: 0}
+      [] -> %{queued_jobs: 0, busy_workers: 0, idle_workers: 0, jobs_completed: 0}
     end
   end
 
@@ -35,8 +37,8 @@ defmodule Dispatcher do
       idle_workers: MapSet.new(),
       busy_workers: MapSet.new(),
       queue: :queue.new(),
-      jobs_completed: 0,
-      jobs_failed: 0
+      dlq: :queue.new(),
+      jobs_completed: 0
     }
 
     update_stats(dispatcher_state)
@@ -45,37 +47,14 @@ defmodule Dispatcher do
 
   @impl true
   def handle_cast({:worker_idle, worker, result}, state) do
-    state =
-      case result do
-        nil ->
-          state
-
-        job ->
-          case job.status do
-            :completed ->
-              Logger.info("Job #{inspect(job.id)} finished with status #{job.status}")
-              Map.update!(state, :jobs_completed, &(&1 + 1))
-
-            :failed ->
-              Logger.error("Job #{inspect(job.id)} failed: #{inspect(job.result)}")
-              Map.update!(state, :jobs_failed, &(&1 + 1))
-          end
-      end
+    state = update_state_on_job_result(result, state)
 
     state =
       state
       |> Map.update!(:idle_workers, &MapSet.put(&1, worker))
       |> Map.update!(:busy_workers, &MapSet.delete(&1, worker))
 
-    state =
-      case :queue.out(state.queue) do
-        {{:value, job}, rest} ->
-          GenServer.cast(worker, {:run_job, job})
-          %{state | queue: rest}
-
-        {:empty, _} ->
-          state
-      end
+    state = call_worker_if_queue_not_empty(worker, state)
 
     update_stats(state)
     {:noreply, state}
@@ -102,7 +81,7 @@ defmodule Dispatcher do
   defp do_dispatch(%Job{} = job, state) do
     case MapSet.to_list(state.idle_workers) do
       [] ->
-        Logger.info("No idle workers, queuing job")
+        # Logger.info("No idle workers, queuing job")
         %{state | queue: :queue.in(job, state.queue)}
 
       [worker | _rest] ->
@@ -115,13 +94,67 @@ defmodule Dispatcher do
     end
   end
 
+  defp call_worker_if_queue_not_empty(worker, state) do
+    case :queue.out(state.queue) do
+      {{:value, job}, rest} ->
+        GenServer.cast(worker, {:run_job, job})
+        %{state | queue: rest}
+
+      {:empty, _} ->
+        call_worker_if_dlq_not_empty(worker, state)
+    end
+  end
+
+  defp update_state_on_job_result(result, state) do
+    case result do
+      nil ->
+        state
+
+      job ->
+        case job.status do
+          :completed ->
+            Logger.info("Job #{inspect(job.id)} finished with status #{job.status}")
+
+            state
+            |> Map.update!(:jobs_completed, &(&1 + 1))
+
+          :failed ->
+            Logger.error("Job #{inspect(job.id)} failed: #{inspect(job.result)}")
+
+            Logger.info(
+              "Job #{inspect(job.id)} added to DLQ with #{inspect(job.retries)} retries so far."
+            )
+
+            state
+            |> Map.update!(:dlq, &:queue.in(job, &1))
+        end
+    end
+  end
+
+  defp call_worker_if_dlq_not_empty(worker, state) do
+    case :queue.out(state.dlq) do
+      {{:value, job}, rest} ->
+        if job.retries < @max_retries do
+          Logger.info("Retrying job #{inspect(job.id)}, attempt #{job.retries + 1}")
+          GenServer.cast(worker, {:run_job, %{job | retries: job.retries + 1}})
+        else
+          Logger.error("Job #{inspect(job.id)} exceeded max retries, dropping")
+        end
+
+        %{state | dlq: rest}
+
+      {:empty, _} ->
+        state
+    end
+  end
+
   defp update_stats(state) do
     stats = %{
       queued_jobs: :queue.len(state.queue),
       busy_workers: MapSet.size(state.busy_workers),
       idle_workers: MapSet.size(state.idle_workers),
       jobs_completed: state.jobs_completed,
-      jobs_failed: state.jobs_failed
+      dlq_jobs: :queue.len(state.dlq)
     }
 
     :ets.insert(@stats_table, {:snapshot, stats})

@@ -1,5 +1,13 @@
+# few requests, watch them actually complete
 stress-test:
-	wrk -t50 -c200 -d30s -s post.lua http://localhost:4000/jobs
+	wrk -t1 -c5 -d10s -s post.lua http://localhost:4000/jobs
 
-stress-test-light:
-	wrk -t10 -c50 -d10s -s post.lua http://localhost:4000/jobs
+# single request, measure one full job lifecycle
+test-single:
+	curl -X POST http://localhost:4000/jobs \
+		-H "Content-Type: application/json" \
+		-d '{"payload": "password123"}'
+
+# poll stats every second while a test runs
+watch-stats:
+	watch -n 1 curl -s http://localhost:4000/stats

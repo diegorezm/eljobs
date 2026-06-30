@@ -6,7 +6,8 @@ defmodule Job do
             created_at: nil,
             ended_at: nil,
             failed_at: nil,
-            result: nil
+            result: nil,
+            retries: 0
 
   def new(opts \\ []) do
     %__MODULE__{
