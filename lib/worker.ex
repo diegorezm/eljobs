@@ -1,5 +1,4 @@
 defmodule Worker do
-  require Logger
   use GenServer
 
   def start_link(id) do
@@ -9,21 +8,24 @@ defmodule Worker do
   @impl true
   def init(id) do
     Dispatcher.worker_idle(self())
-
-    {:ok,
-     %{
-       worker_id: id
-     }}
+    {:ok, %{worker_id: id, result: nil}}
   end
 
   @impl true
-  def handle_cast({:run_job, job}, state) do
-    Logger.info("Worker #{inspect(state.worker_id)} starting job, sleeping for
-      #{inspect(job.sleep_for)}ms")
+  def handle_cast({:run_job, %Job{} = job}, state) do
     Dispatcher.worker_busy(self())
-    Process.sleep(job.sleep_for)
-    Logger.info("Worker #{inspect(state.worker_id)} finished job")
-    Dispatcher.worker_idle(self())
-    {:noreply, state}
+    result = execute(job)
+    Dispatcher.worker_idle(self(), result)
+
+    {:noreply, %{state | result: result}}
+  end
+
+  defp execute(%Job{} = job) do
+    try do
+      result = job.work.()
+      %{job | status: :completed, result: result, ended_at: DateTime.utc_now()}
+    rescue
+      e -> %{job | status: :failed, failed_at: DateTime.utc_now(), result: {:error, e}}
+    end
   end
 end

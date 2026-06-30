@@ -1,7 +1,6 @@
 ## Job queue improvements
-- [ ] Add job timestamps — record enqueued_at and started_at to measure queue wait time
+- [X] Add job timestamps — record enqueued_at and started_at to measure queue wait time
 - [ ] Add max queue depth limit — reject jobs with 429 when queue exceeds a threshold
-- [ ] Support job priorities — higher priority jobs skip ahead in the queue
 - [ ] Add job retries — retry failed jobs N times before marking as dead
 - [ ] Dead letter queue — store permanently failed jobs somewhere for inspection
 

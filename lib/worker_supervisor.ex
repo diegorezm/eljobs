@@ -8,7 +8,7 @@ defmodule WorkerSupervisor do
   @impl true
   def init(_init_arg) do
     children =
-      Enum.map(1..5, fn i ->
+      Enum.map(1..15, fn i ->
         Supervisor.child_spec({Worker, UUID.uuid4()}, id: {Worker, i})
       end)
 

@@ -2,16 +2,25 @@ defmodule Dispatcher do
   require Logger
   use GenServer
 
+  @stats_table :dispatcher_stats
+
   def dispatch(job) do
     GenServer.cast(__MODULE__, {:dispatch, job})
+  end
+
+  def get_stats() do
+    case :ets.lookup(@stats_table, :snapshot) do
+      [{:snapshot, stats}] -> stats
+      [] -> %{queued_jobs: 0, busy_workers: 0, idle_workers: 0, jobs_completed: 0, jobs_failed: 0}
+    end
   end
 
   def worker_busy(worker) do
     GenServer.cast(__MODULE__, {:worker_busy, worker})
   end
 
-  def worker_idle(worker) do
-    GenServer.cast(__MODULE__, {:worker_idle, worker})
+  def worker_idle(worker, result \\ nil) do
+    GenServer.cast(__MODULE__, {:worker_idle, worker, result})
   end
 
   def start_link(_args) do
@@ -20,17 +29,39 @@ defmodule Dispatcher do
 
   @impl true
   def init(_) do
+    :ets.new(@stats_table, [:set, :public, :named_table])
+
     dispatcher_state = %{
       idle_workers: MapSet.new(),
       busy_workers: MapSet.new(),
-      queue: :queue.new()
+      queue: :queue.new(),
+      jobs_completed: 0,
+      jobs_failed: 0
     }
 
+    update_stats(dispatcher_state)
     {:ok, dispatcher_state}
   end
 
   @impl true
-  def handle_cast({:worker_idle, worker}, state) do
+  def handle_cast({:worker_idle, worker, result}, state) do
+    state =
+      case result do
+        nil ->
+          state
+
+        job ->
+          case job.status do
+            :completed ->
+              Logger.info("Job #{inspect(job.id)} finished with status #{job.status}")
+              Map.update!(state, :jobs_completed, &(&1 + 1))
+
+            :failed ->
+              Logger.error("Job #{inspect(job.id)} failed: #{inspect(job.result)}")
+              Map.update!(state, :jobs_failed, &(&1 + 1))
+          end
+      end
+
     state =
       state
       |> Map.update!(:idle_workers, &MapSet.put(&1, worker))
@@ -46,6 +77,7 @@ defmodule Dispatcher do
           state
       end
 
+    update_stats(state)
     {:noreply, state}
   end
 
@@ -56,15 +88,18 @@ defmodule Dispatcher do
       |> Map.update!(:idle_workers, &MapSet.delete(&1, worker))
       |> Map.update!(:busy_workers, &MapSet.put(&1, worker))
 
+    update_stats(state)
     {:noreply, state}
   end
 
   @impl true
   def handle_cast({:dispatch, job}, state) do
-    {:noreply, do_dispatch(job, state)}
+    state = do_dispatch(job, state)
+    update_stats(state)
+    {:noreply, state}
   end
 
-  defp do_dispatch(job, state) do
+  defp do_dispatch(%Job{} = job, state) do
     case MapSet.to_list(state.idle_workers) do
       [] ->
         Logger.info("No idle workers, queuing job")
@@ -73,7 +108,22 @@ defmodule Dispatcher do
       [worker | _rest] ->
         Logger.info("Dispatching job to worker #{inspect(worker)}")
         GenServer.cast(worker, {:run_job, job})
+
         state
+        |> Map.update!(:idle_workers, &MapSet.delete(&1, worker))
+        |> Map.update!(:busy_workers, &MapSet.put(&1, worker))
     end
+  end
+
+  defp update_stats(state) do
+    stats = %{
+      queued_jobs: :queue.len(state.queue),
+      busy_workers: MapSet.size(state.busy_workers),
+      idle_workers: MapSet.size(state.idle_workers),
+      jobs_completed: state.jobs_completed,
+      jobs_failed: state.jobs_failed
+    }
+
+    :ets.insert(@stats_table, {:snapshot, stats})
   end
 end

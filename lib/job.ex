@@ -1,14 +1,17 @@
 defmodule Job do
+  @enforce_keys [:id, :work, :created_at]
   defstruct id: nil,
-            sleep_for: 1,
+            work: nil,
             status: :pending,
             created_at: nil,
-            failed_at: nil
+            ended_at: nil,
+            failed_at: nil,
+            result: nil
 
-  def new(id \\ UUID.uuid4(), sleep_for \\ Enum.random(0..10)) do
+  def new(opts \\ []) do
     %__MODULE__{
-      id: id,
-      sleep_for: sleep_for,
+      id: Keyword.get(opts, :id, UUID.uuid4()),
+      work: Keyword.fetch!(opts, :work),
       status: :pending,
       created_at: DateTime.utc_now()
     }
