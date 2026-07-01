@@ -13,8 +13,8 @@
 - [x] Peak queue depth — track the highest queue length ever observed
 
 ## Containerization
-- [ ] Write a Dockerfile for the Elixir app
-- [ ] Add a docker-compose.yml with CPU and memory limits to simulate a real server
+- [x] Write a Dockerfile for the Elixir app
+- [x] Add a docker-compose.yml with CPU and memory limits to simulate a real server
 - [ ] Add a wrk container to docker-compose so the load test runs inside the network
 - [ ] Add make targets — make up, make stress-test, make stats — to run everything easily
 - [ ] Test with different CPU limits (0.5, 1.0, 2.0) and compare throughput + saturation point

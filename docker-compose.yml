@@ -1,0 +1,27 @@
+services:
+  eljobs:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: eljobs:latest
+    container_name: eljobs
+    restart: unless-stopped
+
+    cpus: "2"
+    mem_limit: 4g
+    mem_reservation: 2g
+
+    environment:
+      - MIX_ENV=prod
+      - ERL_FLAGS=+S 2:2
+      - WORKER_COUNT=${WORKER_COUNT:-20}
+
+    ports:
+      - "4000:4000"
+
+    healthcheck:
+      test: ["CMD", "bin/eljobs", "pid"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
