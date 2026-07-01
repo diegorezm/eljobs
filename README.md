@@ -22,56 +22,19 @@ how workers are managed, how backpressure works, and how the system behaves unde
 ## Architecture
 
 ```mermaid
-flowchart TB
-    Client([Client]) -->|POST /jobs| HTTP[HTTP API<br/>Bandit]
-    HTTP -->|dispatch job| Dispatcher
-
-    subgraph Core["Core"]
-        Dispatcher{{"Dispatcher<br/>(GenServer)"}}
-        Queue[("Job Queue<br/>:queue")]
-        Dispatcher <-->|enqueue if no<br/>idle worker| Queue
-    end
-
-    subgraph Pool["Worker Pool"]
-        W1["Worker 1<br/>(GenServer)"]
-        W2["Worker 2<br/>(GenServer)"]
-        W3["Worker N<br/>(GenServer)"]
-    end
-
-    W1 -.->|self-register on boot| Dispatcher
-    W2 -.->|self-register on boot| Dispatcher
-    W3 -.->|self-register on boot| Dispatcher
-
-    Dispatcher -->|assign job to<br/>idle worker| W1
-    Dispatcher -->|assign job to<br/>idle worker| W2
-    Dispatcher -->|assign job to<br/>idle worker| W3
-
-    W1 -->|success| Done[("jobs_completed")]
-    W2 -->|success| Done
-    W3 -->|success| Done
-
-    W1 -.->|failure / retries exhausted| DLQ[("Dead Letter Queue")]
-    W2 -.->|failure / retries exhausted| DLQ
-    W3 -.->|failure / retries exhausted| DLQ
-
-    Dispatcher -->|metrics| Stats["GET /stats"]
-    Queue -->|peak_queue,<br/>queued_jobs| Stats
-    DLQ -->|dlq_jobs| Stats
+flowchart LR
+    Client([Client]) -->|POST /jobs| Dispatcher{{Dispatcher}}
+    Dispatcher <-->|no idle worker| Queue[(Queue)]
+    Dispatcher -->|assign job| Workers["Worker Pool<br/>(N GenServers)"]
+    Workers -.->|self-register on boot| Dispatcher
+    Workers -->|success| Done([jobs_completed])
+    Workers -.->|failure| DLQ[(Dead Letter Queue)]
 ```
 
-**Flow:**
-1. A client `POST`s a job to `/jobs`, which hits the `Dispatcher`.
-2. If an idle worker is available, the dispatcher assigns the job immediately.
-   Otherwise, the job goes into the internal queue (this is where backpressure and
-   queue depth come from under load).
-3. Workers self-register with the dispatcher on startup — the dispatcher's pool of
-   known workers grows dynamically rather than being hardcoded, so `WORKER_COUNT` can
-   change the pool size without the dispatcher needing any awareness of how many
-   workers exist ahead of time.
-4. On completion, a worker reports back and becomes available for the next job (or the
-   next queued one, if any). On failure or exhausted retries, the job goes to the DLQ
-   instead of being dropped.
-5. `/stats` aggregates queue depth, worker state, and DLQ count in real time.
+Workers self-register with the dispatcher on startup, so the pool size
+(`WORKER_COUNT`) can change without the dispatcher needing to know about workers
+ahead of time. Failed jobs go to the DLQ instead of being dropped. `GET /stats`
+exposes queue depth, worker state, and DLQ count in real time.
 
 ## Running it
 
@@ -177,6 +140,3 @@ against a server this far behind (achieved ~5,500 req/s instead of 32,000).
 - Comfortable sustained throughput: **1,000–4,000 jobs/sec**, sub-ms p99, zero queue backlog
 - Collapses sharply past **~8,000 req/s** — well before CPU maxes out, pointing to a
   dispatch bottleneck rather than a raw compute ceiling (worth digging into)
-- Worker pool size (5 → 1,000) had **no effect** on throughput or CPU under this
-  CPU-bound workload — the 2-vCPU cap saturates regardless of pool size, and idle
-  memory per worker was negligible even at 1,000 workers
