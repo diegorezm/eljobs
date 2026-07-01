@@ -5,12 +5,12 @@
 - [x] Dead letter queue — store permanently failed jobs somewhere for inspection
 
 ## Metrics to track
-- [ ] Queue wait time — time from dispatch to worker pickup
-- [ ] Job execution time — time from worker pickup to completion
-- [ ] Worker utilization — busy/total ratio over time, expose via /stats
+- [x] Queue wait time — time from dispatch to worker pickup
+- [x] Job execution time — time from worker pickup to completion
+- [x] Worker utilization — busy/total ratio over time, expose via /stats
 - [ ] Saturation point — at what concurrency does queue depth start growing unbounded
-- [ ] Throughput — jobs completed per second, computed from jobs_completed + uptime
-- [ ] Peak queue depth — track the highest queue length ever observed
+- [x] Throughput — jobs completed per second, computed from jobs_completed + uptime
+- [x] Peak queue depth — track the highest queue length ever observed
 
 ## Containerization
 - [ ] Write a Dockerfile for the Elixir app
