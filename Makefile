@@ -10,4 +10,4 @@ test-single:
 
 # poll stats every second while a test runs
 watch-stats:
-	watch -n 1 curl -s http://localhost:4000/stats
+	watch -n 1 http http://localhost:4000/stats

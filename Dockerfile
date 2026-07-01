@@ -32,9 +32,7 @@ RUN mix release
 
 # ---- Runtime stage ----
 FROM alpine:${ALPINE_VERSION} AS runtime
-
-# Only what the BEAM/OTP release actually needs at runtime
-RUN apk add --no-cache libstdc++ openssl ncurses-libs libgcc
+RUN apk add --no-cache libstdc++ openssl ncurses-libs libgcc liblksctp
 
 ENV LANG=C.UTF-8 \
     MIX_ENV=prod
