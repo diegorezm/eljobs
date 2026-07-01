@@ -1,5 +1,6 @@
 defmodule Router do
   use Plug.Router
+
   plug(:match)
   plug(Plug.Parsers, parsers: [:json], json_decoder: Jason)
   plug(:dispatch)
@@ -10,15 +11,23 @@ defmodule Router do
 
     job =
       Job.new(
-        work: fn -> {:ok, Plug.Crypto.MessageEncryptor.encrypt(payload, secret, "UNUSED")} end
+        work: fn ->
+          {:ok, Plug.Crypto.MessageEncryptor.encrypt(payload, secret, "UNUSED")}
+        end
       )
 
     Dispatcher.dispatch(job)
-    send_resp(conn, 202, Jason.encode!(%{job_id: job.id, status: "queued"}))
+
+    conn
+    |> put_resp_content_type("application/json")
+    |> send_resp(202, Jason.encode!(%{job_id: job.id, status: "queued"}))
   end
 
   get "/stats" do
     stats = Dispatcher.get_stats()
-    send_resp(conn, 200, Jason.encode!(stats))
+
+    conn
+    |> put_resp_content_type("application/json")
+    |> send_resp(200, Jason.encode!(stats))
   end
 end
