@@ -22,10 +22,10 @@ defmodule Worker do
 
   defp execute(%Job{} = job) do
     try do
-      if :rand.uniform() < 0.2 do
-        raise "random job failure"
-      end
-
+      # if :rand.uniform() < 0.2 do
+      #   raise "random job failure"
+      # end
+      job = %{job | started_at: DateTime.utc_now()}
       result = job.work.()
       %{job | status: :completed, result: result, ended_at: DateTime.utc_now()}
     rescue
