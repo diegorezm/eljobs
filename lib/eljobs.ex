@@ -3,10 +3,11 @@ defmodule Eljobs do
 
   def start(_type, _args) do
     create_app_secret()
+    worker_count = System.get_env("WORKER_COUNT", "20") |> String.to_integer()
 
     children = [
-      Dispatcher,
-      WorkerSupervisor,
+      {Dispatcher, worker_count},
+      {WorkerSupervisor, worker_count},
       {Bandit, plug: Router, port: 4000}
     ]
 
