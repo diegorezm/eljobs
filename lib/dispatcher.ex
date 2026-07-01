@@ -25,20 +25,27 @@ defmodule Dispatcher do
     GenServer.cast(__MODULE__, {:worker_idle, worker, result})
   end
 
-  def start_link(_args) do
-    GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
+  def start_link(worker_count) do
+    GenServer.start_link(__MODULE__, worker_count, name: __MODULE__)
   end
 
   @impl true
-  def init(_) do
+  def init(worker_count) do
     :ets.new(@stats_table, [:set, :public, :named_table])
 
     dispatcher_state = %{
+      worker_count: worker_count,
+      started_at: DateTime.utc_now(),
       idle_workers: MapSet.new(),
       busy_workers: MapSet.new(),
       queue: :queue.new(),
       dlq: :queue.new(),
-      jobs_completed: 0
+      total_wait_ms: 0,
+      total_exec_time_ms: 0,
+      jobs_completed: 0,
+      peak_queue: 0,
+      total_utilization_samples: 0,
+      utilization_sample_count: 0
     }
 
     update_stats(dispatcher_state)
@@ -55,7 +62,7 @@ defmodule Dispatcher do
       |> Map.update!(:busy_workers, &MapSet.delete(&1, worker))
 
     state = call_worker_if_queue_not_empty(worker, state)
-
+    state = sample_utilization(state)
     update_stats(state)
     {:noreply, state}
   end
@@ -67,6 +74,7 @@ defmodule Dispatcher do
       |> Map.update!(:idle_workers, &MapSet.delete(&1, worker))
       |> Map.update!(:busy_workers, &MapSet.put(&1, worker))
 
+    state = sample_utilization(state)
     update_stats(state)
     {:noreply, state}
   end
@@ -74,6 +82,7 @@ defmodule Dispatcher do
   @impl true
   def handle_cast({:dispatch, job}, state) do
     state = do_dispatch(job, state)
+    state = sample_utilization(state)
     update_stats(state)
     {:noreply, state}
   end
@@ -82,7 +91,9 @@ defmodule Dispatcher do
     case MapSet.to_list(state.idle_workers) do
       [] ->
         # Logger.info("No idle workers, queuing job")
-        %{state | queue: :queue.in(job, state.queue)}
+        new_queue = :queue.in(job, state.queue)
+        current_depth = :queue.len(new_queue)
+        %{state | queue: new_queue, peak_queue: max(current_depth, state.peak_queue)}
 
       [worker | _rest] ->
         Logger.info("Dispatching job to worker #{inspect(worker)}")
@@ -114,9 +125,13 @@ defmodule Dispatcher do
         case job.status do
           :completed ->
             Logger.info("Job #{inspect(job.id)} finished with status #{job.status}")
+            wait_ms = DateTime.diff(job.started_at, job.created_at, :microsecond)
+            exec_time = DateTime.diff(job.ended_at, job.started_at, :microsecond)
 
             state
             |> Map.update!(:jobs_completed, &(&1 + 1))
+            |> Map.update!(:total_wait_ms, &(&1 + wait_ms))
+            |> Map.update!(:total_exec_time_ms, &(&1 + exec_time))
 
           :failed ->
             Logger.error("Job #{inspect(job.id)} failed: #{inspect(job.result)}")
@@ -149,14 +164,66 @@ defmodule Dispatcher do
   end
 
   defp update_stats(state) do
+    uptime_seconds = DateTime.diff(DateTime.utc_now(), state.started_at, :second)
+
+    avg_wait_ms =
+      if state.jobs_completed > 0 do
+        div(state.total_wait_ms, state.jobs_completed)
+      else
+        0
+      end
+
+    avg_exec_time_ms =
+      if state.jobs_completed > 0 do
+        div(state.total_exec_time_ms, state.jobs_completed)
+      else
+        0
+      end
+
+    throughput =
+      if uptime_seconds > 0 do
+        state.jobs_completed / uptime_seconds
+      else
+        0
+      end
+
+    current_utilization =
+      if state.worker_count > 0 do
+        MapSet.size(state.busy_workers) / state.worker_count
+      else
+        0
+      end
+
+    avg_utilization =
+      if state.utilization_sample_count > 0 do
+        state.total_utilization_samples / state.utilization_sample_count
+      else
+        0
+      end
+
     stats = %{
+      peak_queue: state.peak_queue,
       queued_jobs: :queue.len(state.queue),
       busy_workers: MapSet.size(state.busy_workers),
       idle_workers: MapSet.size(state.idle_workers),
       jobs_completed: state.jobs_completed,
-      dlq_jobs: :queue.len(state.dlq)
+      dlq_jobs: :queue.len(state.dlq),
+      avg_wait_ms: avg_wait_ms,
+      throughput: Float.round(throughput * 1.0, 2),
+      avg_exec_time_ms_ms: avg_exec_time_ms,
+      avg_exec_time_ms: avg_exec_time_ms,
+      current_worker_utilization: Float.round(current_utilization * 1.0, 2),
+      avg_worker_utilization: Float.round(avg_utilization * 1.0, 2)
     }
 
     :ets.insert(@stats_table, {:snapshot, stats})
+  end
+
+  defp sample_utilization(state) do
+    sample = MapSet.size(state.busy_workers) / state.worker_count
+
+    state
+    |> Map.update!(:total_utilization_samples, &(&1 + sample))
+    |> Map.update!(:utilization_sample_count, &(&1 + 1))
   end
 end
