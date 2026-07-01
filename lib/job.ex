@@ -4,6 +4,7 @@ defmodule Job do
             work: nil,
             status: :pending,
             created_at: nil,
+            started_at: nil,
             ended_at: nil,
             failed_at: nil,
             result: nil,
